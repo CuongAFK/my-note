@@ -4,7 +4,7 @@ import keyboard
 import threading
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import winsound
 
 CATEGORIES = ["Code", "Edit", "Ghi nhớ", "Giải trí", "Nhật ký"]
@@ -18,7 +18,7 @@ class ModernStickyNotes:
         self.note_counter = 0
         self.data_file = "notes_data.json"
         # Khởi tạo biến cho đồng hồ đếm ngược (10 phút = 600 giây)
-        self.countdown_time = 50  # Biến lưu thời gian đếm ngược, đơn vị giây
+        self.countdown_time = 600  # Biến lưu thời gian đếm ngược, đơn vị giây
         self.is_countdown_alert_active = False
         self.setup_main_window()
         self.load_notes()
@@ -26,7 +26,7 @@ class ModernStickyNotes:
     def setup_main_window(self):
         self.main = tk.Tk()
         self.main.title("Modern Sticky Notes")
-        self.main.geometry("450x500+700+100")
+        self.main.geometry("450x510+700+100")
         self.main.configure(bg="#2b2b2b")
         self.main.resizable(True, True)
 
@@ -67,23 +67,31 @@ class ModernStickyNotes:
             style="Modern.TButton",
             command=self.create_new_note,
         )
-        new_note_btn.pack(side="left", padx=5)
+        new_note_btn.pack(side="left", padx=2)
 
         show_all_btn = ttk.Button(
             control_frame,
-            text="👁 Hiện Tất Cả",
+            text="👁 Hiện ALL",
             style="Modern.TButton",
             command=self.show_all_notes,
         )
-        show_all_btn.pack(side="left", padx=5)
+        show_all_btn.pack(side="left", padx=2)
 
         hide_all_btn = ttk.Button(
             control_frame,
-            text="👁 Ẩn Tất Cả",
+            text="👁 Ẩn ALL",
             style="Modern.TButton",
             command=self.hide_all_notes,
         )
-        hide_all_btn.pack(side="left", padx=5)
+        hide_all_btn.pack(side="left", padx=2)
+
+        save_schedule_btn = ttk.Button(
+            control_frame,
+            text="📅 Lưu TKB",
+            style="Modern.TButton",
+            command=self.save_today_schedule,
+        )
+        save_schedule_btn.pack(side="left", padx=2)
 
         # Notes list frame
         list_frame = tk.Frame(self.main, bg="#2b2b2b")
@@ -92,22 +100,22 @@ class ModernStickyNotes:
         filter_frame = tk.Frame(self.main, bg="#2b2b2b")
         filter_frame.pack(fill="x", padx=20)
 
-        tk.Label(filter_frame, text="Lọc theo tiến độ:", bg="#2b2b2b", fg="white").pack(
-            side="left", padx=10
+        tk.Label(filter_frame, text="Tiến độ:", bg="#2b2b2b", fg="white").pack(
+            side="left", padx=2
         )
         self.status_filter_var = tk.StringVar(value="Tất cả")
         status_filter_box = ttk.Combobox(
             filter_frame,
             textvariable=self.status_filter_var,
             values=["Tất cả"] + STATUS_OPTIONS,
-            width=12,
+            width=10,
         )
-        status_filter_box.pack(side="left", padx=5)
+        status_filter_box.pack(side="left", padx=2)
         status_filter_box.bind(
             "<<ComboboxSelected>>", lambda e: self.update_notes_list()
         )
 
-        tk.Label(filter_frame, text="Lọc theo chủ đề:", bg="#2b2b2b", fg="white").pack(
+        tk.Label(filter_frame, text="Chủ đề:", bg="#2b2b2b", fg="white").pack(
             side="left"
         )
 
@@ -116,10 +124,24 @@ class ModernStickyNotes:
             filter_frame,
             textvariable=self.filter_var,
             values=["Tất cả"] + CATEGORIES,
-            width=12,
+            width=10,
         )
-        filter_box.pack(side="left", padx=5)
+        filter_box.pack(side="left", padx=2)
         filter_box.bind("<<ComboboxSelected>>", lambda e: self.update_notes_list())
+
+        # Thêm lọc theo thời gian
+        tk.Label(filter_frame, text="Thời gian:", bg="#2b2b2b", fg="white").pack(
+            side="left", padx=2
+        )
+        self.time_filter_var = tk.StringVar(value="Tất cả")
+        time_filter_box = ttk.Combobox(
+            filter_frame,
+            textvariable=self.time_filter_var,
+            values=["Tất cả", "Hôm nay", "Tuần này", "Tháng này"],
+            width=10,
+        )
+        time_filter_box.pack(side="left", padx=2)
+        time_filter_box.bind("<<ComboboxSelected>>", lambda e: self.update_notes_list())
 
         tk.Label(
             list_frame,
@@ -201,7 +223,6 @@ class ModernStickyNotes:
         self.save_notes()
         self.reset_countdown()
 
-        
     def update_notes_list(self):
         self.notes = [
             note
@@ -211,7 +232,7 @@ class ModernStickyNotes:
             and hasattr(note, "text_widget")
             and note.text_widget.winfo_exists()
         ]
-        print(f"Số note còn lại sau khi lọc: {len(self.notes)}")
+        # print(f"Số note còn lại sau khi lọc: {len(self.notes)}")
 
         selected_cat = getattr(self, "filter_var", None)
         if selected_cat and selected_cat.get() != "Tất cả":
@@ -230,6 +251,30 @@ class ModernStickyNotes:
                 n
                 for n in notes_to_show
                 if getattr(n, "status", "Chưa hoàn thành") == selected_status.get()
+            ]
+
+        # Lọc theo thời gian (mới thêm)
+        selected_time = self.time_filter_var.get()
+        today = datetime.now()
+        if selected_time == "Hôm nay":
+            notes_to_show = [
+                n
+                for n in notes_to_show
+                if datetime.fromisoformat(n.created_time).date() == today.date()
+            ]
+        elif selected_time == "Tuần này":
+            week_start = today - timedelta(days=today.weekday())  # Thứ Hai tuần này
+            notes_to_show = [
+                n
+                for n in notes_to_show
+                if datetime.fromisoformat(n.created_time).date() >= week_start.date()
+            ]
+        elif selected_time == "Tháng này":
+            month_start = today.replace(day=1)
+            notes_to_show = [
+                n
+                for n in notes_to_show
+                if datetime.fromisoformat(n.created_time).date() >= month_start.date()
             ]
 
         # Sắp xếp theo thời gian tạo giảm dần (mới nhất trước)
@@ -401,21 +446,23 @@ class ModernStickyNotes:
                     notes_data = json.load(f)
 
                 for data in notes_data:
-                    print(f"[load_notes] Đọc created_time từ database: {data.get('created_time', 'Không có')}")
+                    # print(f"[load_notes] Đọc created_time từ database: {data.get('created_time', 'Không có')}")
                     note_window = NoteWindow(self, data["text"])
                     note_window.category = data.get("category", "Ghi nhớ")
                     note_window.status = data.get("status", "Chưa hoàn thành")
                     try:
-                        dt = datetime.fromisoformat(data.get("created_time", datetime.now().isoformat()))
+                        dt = datetime.fromisoformat(
+                            data.get("created_time", datetime.now().isoformat())
+                        )
                         note_window.created_time = dt.isoformat()
-                        print(f"[load_notes] Gán created_time cho note: {note_window.created_time}")
+                        # print(f"[load_notes] Gán created_time cho note: {note_window.created_time}")
                     except ValueError as ve:
-                        print(f"[load_notes] Lỗi parse created_time: {ve}. Sử dụng thời gian hiện tại.")
+                        # print(f"[load_notes] Lỗi parse created_time: {ve}. Sử dụng thời gian hiện tại.")
                         note_window.created_time = datetime.now().isoformat()
-                        print(f"[load_notes] Fallback created_time: {note_window.created_time}")
+                        # print(f"[load_notes] Fallback created_time: {note_window.created_time}")
 
                     note_window.create_window(data["text"])  # Gọi create_window trước
-                    print(f"[load_notes] Đã tạo window: {note_window.window is not None}")
+                    # print(f"[load_notes] Đã tạo window: {note_window.window is not None}")
                     note_window.update_colors_based_on_status()
                     note_window.apply_styles()
                     note_window.update_category_combo()
@@ -428,8 +475,6 @@ class ModernStickyNotes:
                 self.update_notes_list()
         except Exception as e:
             print(f"[load_notes] Lỗi khi tải: {e}")
-
-
 
     # HÀM MỚI: Cập nhật đồng hồ hiện tại và đếm ngược (dán hàm này vào class ModernStickyNotes, sau load_notes)
     def update_clocks(self):
@@ -494,10 +539,55 @@ class ModernStickyNotes:
     def reset_countdown(self):
         self.countdown_time = 600  # Reset về 10 phút
 
+    def save_today_schedule(self):
+        today = datetime.now()
+        today_notes = [
+            n
+            for n in self.notes
+            if datetime.fromisoformat(n.created_time).date() == today.date()
+        ]
+
+        if not today_notes:
+            messagebox.showinfo(
+                "Thông báo", "Không có note nào tạo hôm nay để lưu thời khóa biểu."
+            )
+            return
+
+        # Sắp xếp theo thời gian tạo tăng dần (cũ nhất trước, như lịch trình)
+        today_notes.sort(key=lambda n: datetime.fromisoformat(n.created_time))
+
+        # Định dạng text
+        schedule_content = f"Thời Khóa Biểu Ngày {today.strftime('%d/%m/%Y')}\n"
+        schedule_content += "-" * 50 + "\n\n"
+
+        for note in today_notes:
+            dt = datetime.fromisoformat(note.created_time)
+            time_str = dt.strftime("%H:%M")
+            category = getattr(note, "category", "Ghi nhớ")
+            status = getattr(note, "status", "Chưa hoàn thành")
+            content = (
+                note.text_widget.get("1.0", "end-1c").strip()[:50] + "..."
+                if len(note.text_widget.get("1.0", "end-1c")) > 50
+                else note.text_widget.get("1.0", "end-1c").strip()
+            )
+
+            schedule_content += f"{time_str} - [{category}] ({status}): {content}\n\n"
+
+        # Lưu file
+        file_name = f"schedule_{today.strftime('%Y-%m-%d')}.txt"
+        try:
+            with open(file_name, "w", encoding="utf-8") as f:
+                f.write(schedule_content)
+            messagebox.showinfo(
+                "Thành công", f"Đã lưu thời khóa biểu vào file: {file_name}"
+            )
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi lưu file: {e}")
+
     def hotkey_listener(self):
-        print("🚀 Modern Sticky Notes đã khởi chạy!")
-        print("⌨️  Nhấn Ctrl+Alt+N để tạo note nhanh")
-        print("🛑 Nhấn Esc để thoát")
+        # print("🚀 Modern Sticky Notes đã khởi chạy!")
+        # print("⌨️  Nhấn Ctrl+Alt+N để tạo note nhanh")
+        # print("🛑 Nhấn Esc để thoát")
 
         keyboard.add_hotkey(
             "ctrl+alt+n", lambda: self.main.after(0, lambda: self.create_new_note())
@@ -519,7 +609,7 @@ class NoteWindow:
         self.font_family = "Roboto"
         self.font_size = 11
         self.created_time = datetime.now().isoformat()
-        print(f"[__init__] Khởi tạo self.created_time: {self.created_time}")
+        # print(f"[__init__] Khởi tạo self.created_time: {self.created_time}")
         self.category = "Ghi nhớ"  # Mặc định chủ đề
         self.status = "Chưa hoàn thành"  # Mặc định tiến độ
         self.window = None
@@ -551,7 +641,7 @@ class NoteWindow:
                 self.parent_app.save_notes()
 
     def create_window(self, initial_text):
-        print(f"[create_window] Giá trị self.created_time trước khi hiển thị: {self.created_time}")
+        # print(f"[create_window] Giá trị self.created_time trước khi hiển thị: {self.created_time}")
         self.window = tk.Toplevel()
         self.window.title("📝 Sticky Note")
         self.window.geometry("520x70+0+0")
@@ -601,11 +691,19 @@ class NoteWindow:
 
         # Tiêu đề và thời gian
         dt = datetime.fromisoformat(self.created_time)
-        days_vi = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+        days_vi = [
+            "Thứ Hai",
+            "Thứ Ba",
+            "Thứ Tư",
+            "Thứ Năm",
+            "Thứ Sáu",
+            "Thứ Bảy",
+            "Chủ Nhật",
+        ]
         thu = days_vi[dt.weekday()]
         ngay_thang_nam_gio = dt.strftime("%d/%m/%Y %H:%M")
         title_text = f"Note - {thu}, {ngay_thang_nam_gio}"
-        print(f"[create_window] Tiêu đề hiển thị: {title_text}")
+        # print(f"[create_window] Tiêu đề hiển thị: {title_text}")
 
         self.title_var = tk.StringVar(value=title_text)
         title_label = tk.Label(
@@ -745,13 +843,12 @@ class NoteWindow:
         word_count = len(content.split()) if content.strip() else 0
         self.char_count_var.set(f"{word_count} từ | {char_count} ký tự")
 
-
     def toggle_pin(self):
         current_state = self.window.attributes("-topmost")
         self.window.attributes("-topmost", not current_state)
 
     def apply_styles(self):
-        print(f"[apply_styles] Kiểm tra: self.window = {self.window is not None}, self.text_widget = {self.text_widget is not None}")
+        # print(f"[apply_styles] Kiểm tra: self.window = {self.window is not None}, self.text_widget = {self.text_widget is not None}")
         if self.window and self.text_widget:
             self.window.configure(bg=self.bg_color)
             self.text_widget.configure(
@@ -769,8 +866,6 @@ class NoteWindow:
                             child.configure(bg=self.bg_color, fg=self.text_color)
         else:
             print("[apply_styles] Lỗi: self.window hoặc self.text_widget là None")
-
-            
 
     def show_window(self):
         if self.window:

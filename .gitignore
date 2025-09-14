@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Bỏ toàn bộ file .txt
+*.txt
