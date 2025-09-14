@@ -26,7 +26,7 @@ class ModernStickyNotes:
     def setup_main_window(self):
         self.main = tk.Tk()
         self.main.title("Modern Sticky Notes")
-        self.main.geometry("400x500+700+100")
+        self.main.geometry("450x500+700+100")
         self.main.configure(bg="#2b2b2b")
         self.main.resizable(True, True)
 
@@ -79,7 +79,7 @@ class ModernStickyNotes:
 
         hide_all_btn = ttk.Button(
             control_frame,
-            text="🙈 Ẩn Tất Cả",
+            text="👁 Ẩn Tất Cả",
             style="Modern.TButton",
             command=self.hide_all_notes,
         )
@@ -192,15 +192,16 @@ class ModernStickyNotes:
         status_bar.pack(fill="x", side="bottom")
 
     def create_new_note(self, preset_text=""):
-        # Không cần ask_category riêng nữa, tạo NoteWindow trực tiếp
         note_window = NoteWindow(self, preset_text)
-        note_window.category = CATEGORIES[0]  # Mặc định chủ đề đầu tiên
+        note_window.category = CATEGORIES[0]
+        note_window.create_window(preset_text)  # Gọi create_window cho note mới
         self.notes.append(note_window)
         self.note_counter += 1
         self.update_notes_list()
         self.save_notes()
-        self.reset_countdown()  # Reset đồng hồ đếm ngược khi tạo note mới
+        self.reset_countdown()
 
+        
     def update_notes_list(self):
         self.notes = [
             note
@@ -330,7 +331,7 @@ class ModernStickyNotes:
 
                 tk.Button(
                     btn_frame,
-                    text="🙈",
+                    text="👁",
                     bg="#f39c12",
                     fg="white",
                     font=("Segoe UI", 8),
@@ -400,17 +401,22 @@ class ModernStickyNotes:
                     notes_data = json.load(f)
 
                 for data in notes_data:
+                    print(f"[load_notes] Đọc created_time từ database: {data.get('created_time', 'Không có')}")
                     note_window = NoteWindow(self, data["text"])
                     note_window.category = data.get("category", "Ghi nhớ")
-                    note_window.status = data.get("status", "Chưa hoàn thành")  # Gán status trước
+                    note_window.status = data.get("status", "Chưa hoàn thành")
                     try:
                         dt = datetime.fromisoformat(data.get("created_time", datetime.now().isoformat()))
                         note_window.created_time = dt.isoformat()
+                        print(f"[load_notes] Gán created_time cho note: {note_window.created_time}")
                     except ValueError as ve:
-                        print(f"Lỗi parse created_time: {ve}. Sử dụng thời gian hiện tại.")
+                        print(f"[load_notes] Lỗi parse created_time: {ve}. Sử dụng thời gian hiện tại.")
                         note_window.created_time = datetime.now().isoformat()
+                        print(f"[load_notes] Fallback created_time: {note_window.created_time}")
 
-                    note_window.update_colors_based_on_status()  # Gọi sau khi status được gán
+                    note_window.create_window(data["text"])  # Gọi create_window trước
+                    print(f"[load_notes] Đã tạo window: {note_window.window is not None}")
+                    note_window.update_colors_based_on_status()
                     note_window.apply_styles()
                     note_window.update_category_combo()
                     note_window.update_status_combo()
@@ -421,7 +427,9 @@ class ModernStickyNotes:
 
                 self.update_notes_list()
         except Exception as e:
-            print(f"Lỗi khi tải: {e}")
+            print(f"[load_notes] Lỗi khi tải: {e}")
+
+
 
     # HÀM MỚI: Cập nhật đồng hồ hiện tại và đếm ngược (dán hàm này vào class ModernStickyNotes, sau load_notes)
     def update_clocks(self):
@@ -511,13 +519,13 @@ class NoteWindow:
         self.font_family = "Roboto"
         self.font_size = 11
         self.created_time = datetime.now().isoformat()
+        print(f"[__init__] Khởi tạo self.created_time: {self.created_time}")
         self.category = "Ghi nhớ"  # Mặc định chủ đề
         self.status = "Chưa hoàn thành"  # Mặc định tiến độ
         self.window = None
         self.text_widget = None
 
         self.update_colors_based_on_status()  # Gọi sau khi status được khởi tạo
-        self.create_window(initial_text)
 
     def update_colors_based_on_status(self):
         # Định nghĩa màu dựa trên status
@@ -543,9 +551,11 @@ class NoteWindow:
                 self.parent_app.save_notes()
 
     def create_window(self, initial_text):
+        print(f"[create_window] Giá trị self.created_time trước khi hiển thị: {self.created_time}")
         self.window = tk.Toplevel()
         self.window.title("📝 Sticky Note")
         self.window.geometry("520x70+0+0")
+        self.window.overrideredirect(True)  # Bỏ thanh tiêu đề
         self.window.configure(bg=self.bg_color)
         self.window.attributes("-topmost", True)
 
@@ -557,12 +567,45 @@ class NoteWindow:
         header_frame = tk.Frame(self.window, bg=self.bg_color)
         header_frame.pack(fill="x", padx=5, pady=2)
 
-        # Sử dụng trực tiếp self.created_time (đã là ISO hợp lệ)
+        # Nút kéo di chuyển
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+
+        def start_drag(event):
+            self.drag_start_x = event.x_root - self.window.winfo_x()
+            self.drag_start_y = event.y_root - self.window.winfo_y()
+
+        def do_drag(event):
+            x = event.x_root - self.drag_start_x
+            y = event.y_root - self.drag_start_y
+            self.window.geometry(f"+{x}+{y}")
+
+        def stop_drag(event):
+            self.drag_start_x = 0
+            self.drag_start_y = 0
+
+        drag_btn = tk.Button(
+            header_frame,
+            text="↔",
+            font=("Roboto", 10),
+            width=2,
+            command=lambda: None,  # Không cần lệnh, chỉ để kéo
+            bg="#00536b",
+            fg="white",
+            relief="flat",
+        )
+        drag_btn.pack(side="left", padx=1)
+        drag_btn.bind("<Button-1>", start_drag)
+        drag_btn.bind("<B1-Motion>", do_drag)
+        drag_btn.bind("<ButtonRelease-1>", stop_drag)
+
+        # Tiêu đề và thời gian
         dt = datetime.fromisoformat(self.created_time)
         days_vi = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
         thu = days_vi[dt.weekday()]
         ngay_thang_nam_gio = dt.strftime("%d/%m/%Y %H:%M")
         title_text = f"Note - {thu}, {ngay_thang_nam_gio}"
+        print(f"[create_window] Tiêu đề hiển thị: {title_text}")
 
         self.title_var = tk.StringVar(value=title_text)
         title_label = tk.Label(
@@ -602,6 +645,18 @@ class NoteWindow:
             relief="flat",
         )
         pin_btn.pack(side="left", padx=1)
+
+        hide_btn = tk.Button(
+            btn_frame,
+            text="👁",
+            font=("Roboto", 10),
+            width=2,
+            command=self.hide_window,
+            bg="#f39c12",
+            fg="white",
+            relief="flat",
+        )
+        hide_btn.pack(side="left", padx=1)
 
         close_btn = tk.Button(
             btn_frame,
@@ -696,21 +751,26 @@ class NoteWindow:
         self.window.attributes("-topmost", not current_state)
 
     def apply_styles(self):
-        self.window.configure(bg=self.bg_color)
-        self.text_widget.configure(
-            bg=self.bg_color,
-            fg=self.text_color,
-            font=("Roboto", 11),  # Font mặc định, bỏ self.font_size/self.font_family
-            insertbackground=self.text_color,
-        )
+        print(f"[apply_styles] Kiểm tra: self.window = {self.window is not None}, self.text_widget = {self.text_widget is not None}")
+        if self.window and self.text_widget:
+            self.window.configure(bg=self.bg_color)
+            self.text_widget.configure(
+                bg=self.bg_color,
+                fg=self.text_color,
+                font=("Roboto", 11),
+                insertbackground=self.text_color,
+            )
 
-        # Update all frame backgrounds
-        for widget in self.window.winfo_children():
-            if isinstance(widget, tk.Frame):
-                widget.configure(bg=self.bg_color)
-                for child in widget.winfo_children():
-                    if isinstance(child, tk.Label):
-                        child.configure(bg=self.bg_color, fg=self.text_color)
+            for widget in self.window.winfo_children():
+                if isinstance(widget, tk.Frame):
+                    widget.configure(bg=self.bg_color)
+                    for child in widget.winfo_children():
+                        if isinstance(child, tk.Label):
+                            child.configure(bg=self.bg_color, fg=self.text_color)
+        else:
+            print("[apply_styles] Lỗi: self.window hoặc self.text_widget là None")
+
+            
 
     def show_window(self):
         if self.window:
