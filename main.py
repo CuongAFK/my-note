@@ -1,0 +1,728 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import keyboard
+import threading
+import json
+import os
+from datetime import datetime
+import winsound
+
+CATEGORIES = ["Code", "Edit", "Ghi nhớ", "Giải trí", "Nhật ký"]
+STATUS_OPTIONS = ["Chưa hoàn thành", "Đang làm", "Hoàn thành"]
+
+
+class ModernStickyNotes:
+
+    def __init__(self):
+        self.notes = []
+        self.note_counter = 0
+        self.data_file = "notes_data.json"
+        # Khởi tạo biến cho đồng hồ đếm ngược (10 phút = 600 giây)
+        self.countdown_time = 50  # Biến lưu thời gian đếm ngược, đơn vị giây
+        self.is_countdown_alert_active = False
+        self.setup_main_window()
+        self.load_notes()
+
+    def setup_main_window(self):
+        self.main = tk.Tk()
+        self.main.title("Modern Sticky Notes")
+        self.main.geometry("400x500+700+100")
+        self.main.configure(bg="#2b2b2b")
+        self.main.resizable(True, True)
+
+        # Style configuration
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Modern.TButton",
+            background="#4a90e2",
+            foreground="white",
+            font=("Segoe UI", 10),
+        )
+        style.map("Modern.TButton", background=[("active", "#357abd")])
+
+        self.setup_main_ui()
+
+    def setup_main_ui(self):
+        # Header
+        header_frame = tk.Frame(self.main, bg="#2b2b2b")
+        header_frame.pack(fill="x", pady=10)
+
+        title_label = tk.Label(
+            header_frame,
+            text="📝 Modern Sticky Notes",
+            bg="#2b2b2b",
+            fg="#ffffff",
+            font=("Segoe UI", 18, "bold"),
+        )
+        title_label.pack()
+
+        # Control panel
+        control_frame = tk.Frame(self.main, bg="#2b2b2b")
+        control_frame.pack(fill="x", padx=20, pady=10)
+
+        new_note_btn = ttk.Button(
+            control_frame,
+            text="➕ Tạo Note Mới",
+            style="Modern.TButton",
+            command=self.create_new_note,
+        )
+        new_note_btn.pack(side="left", padx=5)
+
+        show_all_btn = ttk.Button(
+            control_frame,
+            text="👁 Hiện Tất Cả",
+            style="Modern.TButton",
+            command=self.show_all_notes,
+        )
+        show_all_btn.pack(side="left", padx=5)
+
+        hide_all_btn = ttk.Button(
+            control_frame,
+            text="🙈 Ẩn Tất Cả",
+            style="Modern.TButton",
+            command=self.hide_all_notes,
+        )
+        hide_all_btn.pack(side="left", padx=5)
+
+        # Notes list frame
+        list_frame = tk.Frame(self.main, bg="#2b2b2b")
+        list_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        filter_frame = tk.Frame(self.main, bg="#2b2b2b")
+        filter_frame.pack(fill="x", padx=20)
+
+        tk.Label(filter_frame, text="Lọc theo tiến độ:", bg="#2b2b2b", fg="white").pack(
+            side="left", padx=10
+        )
+        self.status_filter_var = tk.StringVar(value="Tất cả")
+        status_filter_box = ttk.Combobox(
+            filter_frame,
+            textvariable=self.status_filter_var,
+            values=["Tất cả"] + STATUS_OPTIONS,
+            width=12,
+        )
+        status_filter_box.pack(side="left", padx=5)
+        status_filter_box.bind(
+            "<<ComboboxSelected>>", lambda e: self.update_notes_list()
+        )
+
+        tk.Label(filter_frame, text="Lọc theo chủ đề:", bg="#2b2b2b", fg="white").pack(
+            side="left"
+        )
+
+        self.filter_var = tk.StringVar(value="Tất cả")
+        filter_box = ttk.Combobox(
+            filter_frame,
+            textvariable=self.filter_var,
+            values=["Tất cả"] + CATEGORIES,
+            width=12,
+        )
+        filter_box.pack(side="left", padx=5)
+        filter_box.bind("<<ComboboxSelected>>", lambda e: self.update_notes_list())
+
+        tk.Label(
+            list_frame,
+            text="Danh Sách Notes:",
+            bg="#2b2b2b",
+            fg="#ffffff",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(anchor="w")
+
+        # THÊM ĐỒNG HỒ: Frame để chứa đồng hồ hiện tại và đếm ngược (dán code vào đây trong setup_main_ui, sau phần filter)
+        clock_frame = tk.Frame(list_frame, bg="#2b2b2b")
+        clock_frame.pack(fill="x", pady=5)
+
+        # Label cho đồng hồ hiện tại
+        self.current_time_label = tk.Label(
+            clock_frame,
+            text="Giờ hiện tại: ",
+            bg="#2b2b2b",
+            fg="#00ff00",
+            font=("Segoe UI", 10, "bold"),
+        )
+        self.current_time_label.pack(side="left", padx=10)
+
+        # Label cho đồng hồ đếm ngược
+        self.countdown_label = tk.Label(
+            clock_frame,
+            text="Đếm ngược: ",
+            bg="#2b2b2b",
+            fg="#ff0000",
+            font=("Segoe UI", 10, "bold"),
+        )
+        self.countdown_label.pack(side="right", padx=10)
+
+        # Bắt đầu cập nhật đồng hồ (gọi hàm update_clocks để bắt đầu)
+        self.update_clocks()
+
+        # Scrollable list
+        list_container = tk.Frame(list_frame, bg="#2b2b2b")
+        list_container.pack(fill="both", expand=True, pady=5)
+
+        self.canvas = tk.Canvas(list_container, bg="#3b3b3b", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(
+            list_container, orient="vertical", command=self.canvas.yview
+        )
+        self.scrollable_frame = tk.Frame(self.canvas, bg="#3b3b3b")
+
+        # Khi nội dung bên trong thay đổi kích thước → tự cập nhật vùng scroll
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Status bar
+        self.status_var = tk.StringVar()
+        self.status_var.set("Sẵn sàng - Nhấn Ctrl+Alt+N để tạo note nhanh")
+        status_bar = tk.Label(
+            self.main,
+            textvariable=self.status_var,
+            bg="#4a4a4a",
+            fg="#ffffff",
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        status_bar.pack(fill="x", side="bottom")
+
+    def create_new_note(self, preset_text=""):
+        # Không cần ask_category riêng nữa, tạo NoteWindow trực tiếp
+        note_window = NoteWindow(self, preset_text)
+        note_window.category = CATEGORIES[0]  # Mặc định chủ đề đầu tiên
+        self.notes.append(note_window)
+        self.note_counter += 1
+        self.update_notes_list()
+        self.save_notes()
+        self.reset_countdown()  # Reset đồng hồ đếm ngược khi tạo note mới
+
+    def update_notes_list(self):
+        self.notes = [
+            note
+            for note in self.notes
+            if note.window
+            and note.window.winfo_exists()
+            and hasattr(note, "text_widget")
+            and note.text_widget.winfo_exists()
+        ]
+        print(f"Số note còn lại sau khi lọc: {len(self.notes)}")
+
+        selected_cat = getattr(self, "filter_var", None)
+        if selected_cat and selected_cat.get() != "Tất cả":
+            notes_to_show = [
+                n
+                for n in self.notes
+                if getattr(n, "category", "Ghi nhớ") == selected_cat.get()
+            ]
+        else:
+            notes_to_show = self.notes
+
+        # Lọc theo tiến độ
+        selected_status = getattr(self, "status_filter_var", None)
+        if selected_status and selected_status.get() != "Tất cả":
+            notes_to_show = [
+                n
+                for n in notes_to_show
+                if getattr(n, "status", "Chưa hoàn thành") == selected_status.get()
+            ]
+
+        # Sắp xếp theo thời gian tạo giảm dần (mới nhất trước)
+        notes_to_show.sort(
+            key=lambda n: datetime.fromisoformat(n.created_time), reverse=True
+        )
+
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+        for i, note in enumerate(notes_to_show):
+            try:
+                note_frame = tk.Frame(
+                    self.scrollable_frame,
+                    bg="#4a4a4a",
+                    relief="raised",
+                    bd=1,
+                    width=180,
+                    height=120,
+                )
+                note_frame.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
+                note_frame.grid_propagate(False)
+
+                preview_text = "(Trống)"
+                if note.text_widget and note.text_widget.winfo_exists():
+                    content = note.text_widget.get("1.0", "end-1c")
+                    preview_text = (
+                        content[:20] + "..." if len(content) > 20 else content
+                    )
+
+                info_frame = tk.Frame(note_frame, bg="#4a4a4a")
+                info_frame.pack(fill="x", padx=5, pady=3)
+
+                tk.Label(
+                    info_frame,
+                    text=f"Note #{i+1}",
+                    bg="#4a4a4a",
+                    fg="#ffffff",
+                    font=("Segoe UI", 10, "bold"),
+                ).pack(anchor="w")
+
+                tk.Label(
+                    info_frame,
+                    text=preview_text or "(Trống)",
+                    bg="#4a4a4a",
+                    fg="#cccccc",
+                    font=("Segoe UI", 9),
+                    wraplength=160,
+                ).pack(anchor="w")
+
+                tk.Label(
+                    info_frame,
+                    text=f"[{getattr(note, 'category', 'Ghi nhớ')}]",
+                    bg="#4a4a4a",
+                    fg="#ffcc00",
+                    font=("Segoe UI", 9, "italic"),
+                ).pack(anchor="w")
+
+                tk.Label(
+                    info_frame,
+                    text=f"Tiến độ: {getattr(note, 'status', 'Chưa hoàn thành')}",
+                    bg="#4a4a4a",
+                    fg="#00ff00",
+                    font=("Segoe UI", 8),
+                ).pack(anchor="w")
+
+                dt = datetime.fromisoformat(note.created_time)
+                days_vi = [
+                    "Thứ Hai",
+                    "Thứ Ba",
+                    "Thứ Tư",
+                    "Thứ Năm",
+                    "Thứ Sáu",
+                    "Thứ Bảy",
+                    "Chủ Nhật",
+                ]
+                thu = days_vi[dt.weekday()]
+                ngay_thang_nam_gio = dt.strftime("%d/%m/%Y %H:%M")
+                tk.Label(
+                    info_frame,
+                    text=f"Tạo: {thu}, {ngay_thang_nam_gio}",
+                    bg="#4a4a4a",
+                    fg="#00ff00",
+                    font=("Segoe UI", 8),
+                ).pack(anchor="w")
+
+                btn_frame = tk.Frame(note_frame, bg="#4a4a4a")
+                btn_frame.pack(fill="x", padx=5, pady=3)
+
+                tk.Button(
+                    btn_frame,
+                    text="👁",
+                    bg="#4a90e2",
+                    fg="white",
+                    font=("Segoe UI", 8),
+                    width=3,
+                    command=lambda n=note: n.show_window(),
+                ).pack(side="left", padx=2)
+
+                tk.Button(
+                    btn_frame,
+                    text="🙈",
+                    bg="#f39c12",
+                    fg="white",
+                    font=("Segoe UI", 8),
+                    width=3,
+                    command=lambda n=note: n.hide_window(),
+                ).pack(side="left", padx=2)
+
+                tk.Button(
+                    btn_frame,
+                    text="🗑",
+                    bg="#e74c3c",
+                    fg="white",
+                    font=("Segoe UI", 8),
+                    width=3,
+                    command=lambda n=note: self.delete_note(n),
+                ).pack(side="left", padx=2)
+            except Exception as e:
+                print(f"Lỗi khi vẽ note #{i+1}: {e}")
+
+        self.scrollable_frame.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.status_var.set(
+            f"Tổng cộng {len(notes_to_show)} notes (lọc từ {len(self.notes)})"
+        )
+
+    def delete_note(self, note):
+        if messagebox.askyesno("Xác nhận", "Bạn có chắc muốn xóa note này?"):
+            note.close_window()
+            self.notes.remove(note)
+            self.update_notes_list()
+            self.save_notes()
+
+    def show_all_notes(self):
+        for note in self.notes:
+            note.show_window()
+
+    def hide_all_notes(self):
+        for note in self.notes:
+            note.hide_window()
+
+    def save_notes(self):
+        try:
+            notes_data = []
+            for note in self.notes:
+                if note.window and note.window.winfo_exists():
+                    notes_data.append(
+                        {
+                            "text": note.text_widget.get("1.0", "end-1c"),
+                            "category": getattr(note, "category", "Ghi nhớ"),
+                            "status": getattr(note, "status", "Chưa hoàn thành"),
+                            "geometry": note.window.geometry(),
+                            "created_time": getattr(
+                                note, "created_time", datetime.now().isoformat()
+                            ),
+                        }
+                    )
+
+            with open(self.data_file, "w", encoding="utf-8") as f:
+                json.dump(notes_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Lỗi khi lưu: {e}")
+
+    def load_notes(self):
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, "r", encoding="utf-8") as f:
+                    notes_data = json.load(f)
+
+                for data in notes_data:
+                    note_window = NoteWindow(self, data["text"])
+                    note_window.category = data.get("category", "Ghi nhớ")
+                    note_window.status = data.get("status", "Chưa hoàn thành")  # Gán status trước
+                    try:
+                        dt = datetime.fromisoformat(data.get("created_time", datetime.now().isoformat()))
+                        note_window.created_time = dt.isoformat()
+                    except ValueError as ve:
+                        print(f"Lỗi parse created_time: {ve}. Sử dụng thời gian hiện tại.")
+                        note_window.created_time = datetime.now().isoformat()
+
+                    note_window.update_colors_based_on_status()  # Gọi sau khi status được gán
+                    note_window.apply_styles()
+                    note_window.update_category_combo()
+                    note_window.update_status_combo()
+                    if "geometry" in data:
+                        note_window.window.geometry(data["geometry"])
+
+                    self.notes.append(note_window)
+
+                self.update_notes_list()
+        except Exception as e:
+            print(f"Lỗi khi tải: {e}")
+
+    # HÀM MỚI: Cập nhật đồng hồ hiện tại và đếm ngược (dán hàm này vào class ModernStickyNotes, sau load_notes)
+    def update_clocks(self):
+        # Cập nhật giờ hiện tại
+        current_time = datetime.now().strftime("%H:%M:%S")
+        self.current_time_label.config(text=f"Giờ hiện tại: {current_time}")
+
+        # Cập nhật đếm ngược
+        minutes, seconds = divmod(self.countdown_time, 60)
+        countdown_str = f"{minutes:02d}:{seconds:02d}"
+        self.countdown_label.config(text=f"Đếm ngược: {countdown_str}")
+
+        # Giảm thời gian đếm ngược
+        if self.countdown_time > 0:
+            self.countdown_time -= 1
+        else:
+            if not self.is_countdown_alert_active:
+                self.handle_countdown_zero()
+
+        # Lặp lại sau 1 giây (1000 ms)
+        self.main.after(1000, self.update_clocks)
+
+    # HÀM MỚI: Xử lý khi đếm ngược về 0 (dán hàm này vào class, sau update_clocks)
+    def handle_countdown_zero(self):
+        self.is_countdown_alert_active = True  # Ngăn thông báo lặp lại
+        self.main.lift()
+        self.main.deiconify()
+        self.main.focus_force()
+        try:
+            winsound.Beep(1000, 500)  # Beep 1000Hz trong 0.5 giây
+        except:
+            print("Không thể phát âm thanh")
+
+        response = messagebox.askyesno(
+            "Nhắc nhở",
+            "Đã đến lúc viết note! Bạn có muốn tạo note mới ngay bây giờ không?",
+            parent=self.main,
+        )
+        if response:
+            self.create_new_note()
+        else:
+            messagebox.showwarning(
+                "Cảnh báo 1",
+                "Bạn đang phớt lờ! Hãy viết note để tránh quên việc.",
+                parent=self.main,
+            )
+            messagebox.showwarning(
+                "Cảnh báo 2",
+                "Đừng bỏ qua! Đồng hồ sẽ tiếp tục đếm và nhắc lại sau 1 phút.",
+                parent=self.main,
+            )
+            messagebox.showerror(
+                "Cảnh báo cuối",
+                "Nếu tiếp tục phớt lờ, bạn có thể bỏ lỡ công việc quan trọng!",
+                parent=self.main,
+            )
+            self.countdown_time = 60  # Reset về 1 phút để nhắc lại
+
+        self.is_countdown_alert_active = False  # Cho phép thông báo ở chu kỳ tiếp theo
+        # HÀM MỚI: Reset đồng hồ đếm ngược về 10 phút (dán hàm này vào class, sau handle_countdown_zero)
+
+    def reset_countdown(self):
+        self.countdown_time = 600  # Reset về 10 phút
+
+    def hotkey_listener(self):
+        print("🚀 Modern Sticky Notes đã khởi chạy!")
+        print("⌨️  Nhấn Ctrl+Alt+N để tạo note nhanh")
+        print("🛑 Nhấn Esc để thoát")
+
+        keyboard.add_hotkey(
+            "ctrl+alt+n", lambda: self.main.after(0, lambda: self.create_new_note())
+        )
+        keyboard.wait("esc")
+        self.main.quit()
+
+    def run(self):
+        # Start hotkey listener in separate thread
+        threading.Thread(target=self.hotkey_listener, daemon=True).start()
+        self.main.mainloop()
+
+
+class NoteWindow:
+    def __init__(self, parent_app, initial_text=""):
+        self.parent_app = parent_app
+        self.bg_color = "#fffa77"  # Mặc định, sẽ được cập nhật bởi status
+        self.text_color = "black"
+        self.font_family = "Roboto"
+        self.font_size = 11
+        self.created_time = datetime.now().isoformat()
+        self.category = "Ghi nhớ"  # Mặc định chủ đề
+        self.status = "Chưa hoàn thành"  # Mặc định tiến độ
+        self.window = None
+        self.text_widget = None
+
+        self.update_colors_based_on_status()  # Gọi sau khi status được khởi tạo
+        self.create_window(initial_text)
+
+    def update_colors_based_on_status(self):
+        # Định nghĩa màu dựa trên status
+        if self.status == "Chưa hoàn thành":
+            self.bg_color = "#fffa77"  # Vàng nhạt
+            self.text_color = "black"
+        elif self.status == "Đang làm":
+            self.bg_color = "#ffa500"  # Cam
+            self.text_color = "black"
+        elif self.status == "Hoàn thành":
+            self.bg_color = "#90ee90"  # Xanh lá nhạt
+            self.text_color = "black"
+        else:
+            self.bg_color = "#fffa77"  # Default
+            self.text_color = "black"
+
+    def close_window(self):
+        if self.window:
+            self.window.destroy()
+            if self in self.parent_app.notes:
+                self.parent_app.notes.remove(self)
+                self.parent_app.update_notes_list()
+                self.parent_app.save_notes()
+
+    def create_window(self, initial_text):
+        self.window = tk.Toplevel()
+        self.window.title("📝 Sticky Note")
+        self.window.geometry("520x70+0+0")
+        self.window.configure(bg=self.bg_color)
+        self.window.attributes("-topmost", True)
+
+        self.window.resizable(True, True)
+
+        self.update_colors_based_on_status()
+        self.window.configure(bg=self.bg_color)
+
+        header_frame = tk.Frame(self.window, bg=self.bg_color)
+        header_frame.pack(fill="x", padx=5, pady=2)
+
+        # Sử dụng trực tiếp self.created_time (đã là ISO hợp lệ)
+        dt = datetime.fromisoformat(self.created_time)
+        days_vi = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+        thu = days_vi[dt.weekday()]
+        ngay_thang_nam_gio = dt.strftime("%d/%m/%Y %H:%M")
+        title_text = f"Note - {thu}, {ngay_thang_nam_gio}"
+
+        self.title_var = tk.StringVar(value=title_text)
+        title_label = tk.Label(
+            header_frame,
+            textvariable=self.title_var,
+            bg=self.bg_color,
+            fg=self.text_color,
+            font=("Roboto", 10, "bold"),
+        )
+        title_label.pack(side="left")
+
+        self.category_var = tk.StringVar(value=self.category)
+        category_combo = ttk.Combobox(
+            header_frame, textvariable=self.category_var, values=CATEGORIES, width=10
+        )
+        category_combo.pack(side="left", padx=5)
+        category_combo.bind("<<ComboboxSelected>>", self.on_category_change)
+
+        self.status_var = tk.StringVar(value=self.status)
+        status_combo = ttk.Combobox(
+            header_frame, textvariable=self.status_var, values=STATUS_OPTIONS, width=12
+        )
+        status_combo.pack(side="left", padx=5)
+        status_combo.bind("<<ComboboxSelected>>", self.on_status_change)
+
+        btn_frame = tk.Frame(header_frame, bg=self.bg_color)
+        btn_frame.pack(side="right")
+
+        self.pin_var = tk.BooleanVar(value=True)
+        pin_btn = tk.Button(
+            btn_frame,
+            text="📌",
+            font=("Roboto", 10),
+            width=2,
+            command=self.toggle_pin,
+            bg="#ffffff",
+            relief="flat",
+        )
+        pin_btn.pack(side="left", padx=1)
+
+        close_btn = tk.Button(
+            btn_frame,
+            text="✖",
+            font=("Roboto", 10),
+            width=2,
+            command=self.close_window,
+            bg="#ff6b6b",
+            fg="white",
+            relief="flat",
+        )
+        close_btn.pack(side="left", padx=1)
+
+        text_frame = tk.Frame(self.window, bg=self.bg_color)
+        text_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.text_widget = tk.Text(
+            text_frame,
+            bg=self.bg_color,
+            fg=self.text_color,
+            font=("Roboto", 11),
+            wrap="word",
+            relief="flat",
+            selectbackground="#4a90e2",
+            insertbackground=self.text_color,
+            borderwidth=0,
+        )
+
+        scrollbar = ttk.Scrollbar(
+            text_frame, orient="vertical", command=self.text_widget.yview
+        )
+        self.text_widget.configure(yscrollcommand=scrollbar.set)
+
+        self.text_widget.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        if initial_text:
+            self.text_widget.insert("1.0", initial_text)
+
+        self.text_widget.bind(
+            "<KeyRelease>",
+            lambda e: (
+                self.update_char_count(),
+                self.parent_app.save_notes(),
+                self.parent_app.update_notes_list(),
+            ),
+        )
+
+        self.status_frame = tk.Frame(self.window, bg=self.bg_color, height=20)
+        self.status_frame.pack(fill="x", side="bottom")
+
+        self.char_count_var = tk.StringVar()
+        char_label = tk.Label(
+            self.status_frame,
+            textvariable=self.char_count_var,
+            bg=self.bg_color,
+            fg=self.text_color,
+            font=("Roboto", 8),
+        )
+        char_label.pack(side="right", padx=5)
+
+        self.update_char_count()
+
+    def on_category_change(self, event):
+        self.category = self.category_var.get()
+        self.parent_app.save_notes()
+        self.parent_app.update_notes_list()  # Cập nhật danh sách khi thay đổi chủ đề
+
+    def on_status_change(self, event):
+        self.status = self.status_var.get()
+        self.update_colors_based_on_status()  # Cập nhật màu dựa trên status mới
+        self.apply_styles()  # Áp dụng style mới
+        self.parent_app.save_notes()
+        self.parent_app.update_notes_list()
+
+    def update_category_combo(self):
+        self.category_var.set(self.category)  # Cập nhật combobox khi load
+
+    def update_status_combo(self):
+        if hasattr(self, "status_var"):
+            self.status_var.set(self.status)
+
+    def update_char_count(self):
+        content = self.text_widget.get("1.0", "end-1c")
+        char_count = len(content)
+        word_count = len(content.split()) if content.strip() else 0
+        self.char_count_var.set(f"{word_count} từ | {char_count} ký tự")
+
+
+    def toggle_pin(self):
+        current_state = self.window.attributes("-topmost")
+        self.window.attributes("-topmost", not current_state)
+
+    def apply_styles(self):
+        self.window.configure(bg=self.bg_color)
+        self.text_widget.configure(
+            bg=self.bg_color,
+            fg=self.text_color,
+            font=("Roboto", 11),  # Font mặc định, bỏ self.font_size/self.font_family
+            insertbackground=self.text_color,
+        )
+
+        # Update all frame backgrounds
+        for widget in self.window.winfo_children():
+            if isinstance(widget, tk.Frame):
+                widget.configure(bg=self.bg_color)
+                for child in widget.winfo_children():
+                    if isinstance(child, tk.Label):
+                        child.configure(bg=self.bg_color, fg=self.text_color)
+
+    def show_window(self):
+        if self.window:
+            self.window.deiconify()
+            self.window.lift()
+
+    def hide_window(self):
+        if self.window:
+            self.window.withdraw()
+
+
+# Run the application
+if __name__ == "__main__":
+    app = ModernStickyNotes()
+    app.run()
