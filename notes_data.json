@@ -1,5 +1,33 @@
 [
   {
+    "text": "tắt app",
+    "category": "Code",
+    "status": "Hoàn thành",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-14T21:00:03.268198"
+  },
+  {
+    "text": "mai làm cái giảm lag load lại  danh sách  note rất lag",
+    "category": "Ghi nhớ",
+    "status": "Chưa hoàn thành",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-14T20:58:52.846671"
+  },
+  {
+    "text": "chơi hsr",
+    "category": "Giải trí",
+    "status": "Hoàn thành",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-14T20:58:28.849353"
+  },
+  {
+    "text": "push github",
+    "category": "Code",
+    "status": "Hoàn thành",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-14T20:48:55.185248"
+  },
+  {
     "text": "test xong tạo tkb",
     "category": "Code",
     "status": "Hoàn thành",
@@ -47,5 +75,26 @@
     "status": "Hoàn thành",
     "geometry": "520x70+0+0",
     "created_time": "2025-09-14T16:26:15.598257"
+  },
+  {
+    "text": "xin chào ",
+    "category": "Code",
+    "status": "Chưa hoàn thành",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-15T10:55:51.459299"
+  },
+  {
+    "text": "fix widgets để giảm lag ",
+    "category": "Code",
+    "status": "Đang làm",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-15T11:29:15.589730"
+  },
+  {
+    "text": "đang fix fix lag ",
+    "category": "Code",
+    "status": "Đang làm",
+    "geometry": "520x70+0+0",
+    "created_time": "2025-09-15T11:38:48.823174"
   }
 ]

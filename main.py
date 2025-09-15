@@ -21,7 +21,9 @@ class ModernStickyNotes:
         self.countdown_time = 600  # Biến lưu thời gian đếm ngược, đơn vị giây
         self.is_countdown_alert_active = False
         self.setup_main_window()
+        self.note_widgets = {}  # Dictionary lưu trữ note -> {'frame': note_frame, 'info_frame': info_frame}
         self.load_notes()
+        self.note_widgets = {}  # Dictionary lưu trữ note -> widget
 
     def setup_main_window(self):
         self.main = tk.Tk()
@@ -224,6 +226,7 @@ class ModernStickyNotes:
         self.reset_countdown()
 
     def update_notes_list(self):
+        # Lọc danh sách note còn tồn tại
         self.notes = [
             note
             for note in self.notes
@@ -232,61 +235,92 @@ class ModernStickyNotes:
             and hasattr(note, "text_widget")
             and note.text_widget.winfo_exists()
         ]
-        # print(f"Số note còn lại sau khi lọc: {len(self.notes)}")
 
-        selected_cat = getattr(self, "filter_var", None)
-        if selected_cat and selected_cat.get() != "Tất cả":
+        # Áp dụng bộ lọc
+        selected_cat = self.filter_var.get()
+        if selected_cat != "Tất cả":
             notes_to_show = [
                 n
                 for n in self.notes
-                if getattr(n, "category", "Ghi nhớ") == selected_cat.get()
+                if getattr(n, "category", "Ghi nhớ") == selected_cat
             ]
         else:
-            notes_to_show = self.notes
+            notes_to_show = self.notes[:]
 
-        # Lọc theo tiến độ
-        selected_status = getattr(self, "status_filter_var", None)
-        if selected_status and selected_status.get() != "Tất cả":
+        selected_status = self.status_filter_var.get()
+        if selected_status != "Tất cả":
             notes_to_show = [
                 n
                 for n in notes_to_show
-                if getattr(n, "status", "Chưa hoàn thành") == selected_status.get()
+                if getattr(n, "status", "Chưa hoàn thành") == selected_status
             ]
 
-        # Lọc theo thời gian (mới thêm)
         selected_time = self.time_filter_var.get()
         today = datetime.now()
         if selected_time == "Hôm nay":
             notes_to_show = [
-                n
-                for n in notes_to_show
+                n for n in notes_to_show
                 if datetime.fromisoformat(n.created_time).date() == today.date()
             ]
         elif selected_time == "Tuần này":
-            week_start = today - timedelta(days=today.weekday())  # Thứ Hai tuần này
+            week_start = today - timedelta(days=today.weekday())
             notes_to_show = [
-                n
-                for n in notes_to_show
+                n for n in notes_to_show
                 if datetime.fromisoformat(n.created_time).date() >= week_start.date()
             ]
         elif selected_time == "Tháng này":
             month_start = today.replace(day=1)
             notes_to_show = [
-                n
-                for n in notes_to_show
+                n for n in notes_to_show
                 if datetime.fromisoformat(n.created_time).date() >= month_start.date()
             ]
 
-        # Sắp xếp theo thời gian tạo giảm dần (mới nhất trước)
+        # Sắp xếp theo thời gian tạo giảm dần
         notes_to_show.sort(
             key=lambda n: datetime.fromisoformat(n.created_time), reverse=True
         )
 
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        # Tạo set các note hiện tại để so sánh
+        current_notes = set(notes_to_show)
+        existing_notes = set(self.note_widgets.keys())
 
+        # Xóa widget của các note không còn hiển thị
+        for note in existing_notes - current_notes:
+            if note in self.note_widgets:
+                self.note_widgets[note]['frame'].destroy()
+                del self.note_widgets[note]
+
+        # Cập nhật hoặc tạo widget mới
         for i, note in enumerate(notes_to_show):
-            try:
+            # Tạo thông tin hiển thị
+            preview_text = "(Trống)"
+            if note.text_widget and note.text_widget.winfo_exists():
+                content = note.text_widget.get("1.0", "end-1c")
+                preview_text = content[:20] + "..." if len(content) > 20 else content
+
+            dt = datetime.fromisoformat(note.created_time)
+            days_vi = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+            thu = days_vi[dt.weekday()]
+            ngay_thang_nam_gio = dt.strftime("%d/%m/%Y %H:%M")
+
+            # Kiểm tra xem note đã có widget chưa
+            if note in self.note_widgets:
+                # Cập nhật widget hiện có
+                note_frame = self.note_widgets[note]['frame']
+                info_frame = self.note_widgets[note]['info_frame']
+                note_frame.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
+                # Cập nhật nội dung các Label
+                labels = [w for w in info_frame.winfo_children() if isinstance(w, tk.Label)]
+                if len(labels) >= 5:  # Đảm bảo có đủ 5 Label
+                    labels[0].config(text=f"Note #{notes_to_show.index(note)+1}")
+                    labels[1].config(text=preview_text or "(Trống)")
+                    labels[2].config(text=f"[{getattr(note, 'category', 'Ghi nhớ')}]")
+                    labels[3].config(text=f"Tiến độ: {getattr(note, 'status', 'Chưa hoàn thành')}")
+                    labels[4].config(text=f"Tạo: {thu}, {ngay_thang_nam_gio}")
+                else:
+                    print(f"Warning: note_frame for note #{notes_to_show.index(note)+1} has only {len(labels)} labels")
+            else:
+                # Tạo widget mới
                 note_frame = tk.Frame(
                     self.scrollable_frame,
                     bg="#4a4a4a",
@@ -297,13 +331,6 @@ class ModernStickyNotes:
                 )
                 note_frame.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
                 note_frame.grid_propagate(False)
-
-                preview_text = "(Trống)"
-                if note.text_widget and note.text_widget.winfo_exists():
-                    content = note.text_widget.get("1.0", "end-1c")
-                    preview_text = (
-                        content[:20] + "..." if len(content) > 20 else content
-                    )
 
                 info_frame = tk.Frame(note_frame, bg="#4a4a4a")
                 info_frame.pack(fill="x", padx=5, pady=3)
@@ -341,18 +368,6 @@ class ModernStickyNotes:
                     font=("Segoe UI", 8),
                 ).pack(anchor="w")
 
-                dt = datetime.fromisoformat(note.created_time)
-                days_vi = [
-                    "Thứ Hai",
-                    "Thứ Ba",
-                    "Thứ Tư",
-                    "Thứ Năm",
-                    "Thứ Sáu",
-                    "Thứ Bảy",
-                    "Chủ Nhật",
-                ]
-                thu = days_vi[dt.weekday()]
-                ngay_thang_nam_gio = dt.strftime("%d/%m/%Y %H:%M")
                 tk.Label(
                     info_frame,
                     text=f"Tạo: {thu}, {ngay_thang_nam_gio}",
@@ -393,9 +408,11 @@ class ModernStickyNotes:
                     width=3,
                     command=lambda n=note: self.delete_note(n),
                 ).pack(side="left", padx=2)
-            except Exception as e:
-                print(f"Lỗi khi vẽ note #{i+1}: {e}")
 
+                # Lưu cả note_frame và info_frame vào dictionary
+                self.note_widgets[note] = {'frame': note_frame, 'info_frame': info_frame}
+
+        # Cập nhật vùng cuộn
         self.scrollable_frame.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         self.status_var.set(
@@ -405,7 +422,11 @@ class ModernStickyNotes:
     def delete_note(self, note):
         if messagebox.askyesno("Xác nhận", "Bạn có chắc muốn xóa note này?"):
             note.close_window()
-            self.notes.remove(note)
+            if note in self.notes:
+                self.notes.remove(note)
+            if note in self.note_widgets:
+                self.note_widgets[note]['frame'].destroy()
+                del self.note_widgets[note]
             self.update_notes_list()
             self.save_notes()
 
