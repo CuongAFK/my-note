@@ -11,3 +11,4 @@ wheels/
 
 # Bỏ toàn bộ file .txt
 *.txt
+*.json

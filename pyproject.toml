@@ -6,4 +6,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "keyboard>=0.13.5",
+    "pyinstaller>=6.16.0",
+    "tkcalendar>=1.6.1",
 ]
